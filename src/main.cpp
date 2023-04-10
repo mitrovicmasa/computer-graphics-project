@@ -121,8 +121,8 @@ int main() {
         glfwTerminate();
         return -1;
     }
-    glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwMakeContextCurrent(window); //Zelimo da crta u ovom prozoru
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); //Kad se promeni velicina prozra, ocemo da se promeni i prostor u kom renderujemo
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetKeyCallback(window, key_callback);
@@ -131,7 +131,7 @@ int main() {
 
     // glad: load all OpenGL function pointers
     // ---------------------------------------
-    if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
+    if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) { //Glad ucitava sve fje
         std::cout << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
@@ -165,7 +165,7 @@ int main() {
 
     // load models
     // -----------
-    Model ourModel("resources/objects/backpack/backpack.obj");
+    Model ourModel("resources/objects/tiger/Tiger.obj");
     ourModel.SetShaderTextureNamePrefix("material.");
 
     PointLight& pointLight = programState->pointLight;
@@ -185,7 +185,7 @@ int main() {
 
     // render loop
     // -----------
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window)) { //Sve dok je prozor otvoren
         // per-frame time logic
         // --------------------
         float currentFrame = glfwGetTime();
@@ -194,17 +194,17 @@ int main() {
 
         // input
         // -----
-        processInput(window);
+        processInput(window); //Update, ako je kliknuto, onda..
 
 
         // render
         // ------
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); //Postavljamo pa cistimo pozadinu
 
         // don't forget to enable shader before setting uniforms
         ourShader.use();
-        pointLight.position = glm::vec3(4.0 * cos(currentFrame), 4.0f, 4.0 * sin(currentFrame));
+        pointLight.position = glm::vec3(4.0 , 4.0f, 4.0 );
         ourShader.setVec3("pointLight.position", pointLight.position);
         ourShader.setVec3("pointLight.ambient", pointLight.ambient);
         ourShader.setVec3("pointLight.diffuse", pointLight.diffuse);
@@ -236,8 +236,8 @@ int main() {
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+        glfwSwapBuffers(window); //Renderovanje
+        glfwPollEvents(); //Provera jel se nesto desilo, klik, mis itd
     }
 
     programState->SaveToFile("resources/program_state.txt");
