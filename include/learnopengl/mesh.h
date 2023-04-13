@@ -25,8 +25,6 @@ struct Vertex {
     glm::vec3 Bitangent;
 };
 
-
-
 struct Texture {
     unsigned int id;
     string type;
