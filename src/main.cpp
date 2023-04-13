@@ -55,9 +55,11 @@ struct ProgramState {
     Camera camera;
     bool CameraMouseMovementUpdateEnabled = true;
     glm::vec3 tigerPosition = glm::vec3(0.0f);
-    float tigerScale = 15.0f;
-    glm::vec3 boatPosition = glm::vec3(0.0f, -5.0f, 0.0f);
-    float boatScale = 0.2f;
+    float tigerScale = 8.0f;
+    glm::vec3 boatPosition = glm::vec3(0.0f, -2.5f, 0.0f);
+    float boatScale = 0.1f;
+    glm::vec3 piPosition = glm::vec3(0.0f, 0.0f, 0.0f);
+    float piScale = 0.03f;
     PointLight pointLight;
     ProgramState()
             : camera(glm::vec3(0.0f, 3.0f, 0.0f)) {}
@@ -158,8 +160,9 @@ int main() {
 
     // build and compile shaders
     // -------------------------
-    Shader ourShader("resources/shaders/2.model_lighting.vs", "resources/shaders/2.model_lighting.fs");
     Shader skyboxShader("resources/shaders/skybox.vs", "resources/shaders/skybox.fs");
+    Shader lightingShader("resources/shaders/multiple_lights.vs", "resources/shaders/multiple_lights.fs");
+    Shader lightCubeShader("resources/shaders/light_bulb.vs", "resources/shaders/light_bulb.fs");
 
     // load models
     // -----------
@@ -169,17 +172,11 @@ int main() {
     Model boatModel("resources/objects/wooden-boat/WoodenBoat.obj");
     boatModel.SetShaderTextureNamePrefix("material.");
 
-    PointLight& pointLight = programState->pointLight;
-    pointLight.position = glm::vec3(4.0f, 4.0, 0.0);
-    pointLight.ambient = glm::vec3(0.1, 0.1, 0.1);
-    pointLight.diffuse = glm::vec3(0.6, 0.6, 0.6);
-    pointLight.specular = glm::vec3(1.0, 1.0, 1.0);
+    Model piModel("resources/objects/pi/letra_pi.stl");
+    piModel.SetShaderTextureNamePrefix("material.");
 
-    pointLight.constant = 0.3f;
-    pointLight.linear = 0.0f;
-    pointLight.quadratic = 0.0f;
 
-    //************************************************ SKYBOX **********************************
+    //*************************** SKYBOX **********************************
     float skyboxVertices[] = {
             // positions
             -1.0f,  1.0f, -1.0f,
@@ -237,14 +234,6 @@ int main() {
 
     // load textures
     // -------------
-    unsigned int cubeTexture = loadTexture(FileSystem::getPath("resources/textures/container.jpg").c_str());
-// order:
-// +X (right)
-// -X (left)
-// +Y (top)
-// -Y (bottom)
-// +Z (front)
-// -Z (back)
     vector<std::string> faces
             {
                     FileSystem::getPath("resources/textures/skybox2/right.jpg"),
@@ -260,6 +249,18 @@ int main() {
     skyboxShader.use();
     skyboxShader.setInt("skybox", 0);
 
+    //******************* Point lights *****************************
+    glm::vec3 pointLightPositions[] = {
+            glm::vec3( 4.0f,  5.0f,  10.0f),
+            glm::vec3( 4.0f, 5.0f, -10.0f),
+            glm::vec3(-4.0f,  5.0f, -10.0f),
+            glm::vec3( -4.0f,  5.0f, 10.0f)
+    };
+
+    lightingShader.use();
+    lightingShader.setInt("material.diffuse", 0);
+    lightingShader.setInt("material.specular", 1);
+
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window)) {
@@ -273,31 +274,70 @@ int main() {
         // -----
         processInput(window);
 
-
         // render
         // ------
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); //Postavljamo pa cistimo pozadinu
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // don't forget to enable shader before setting uniforms
-        ourShader.use();
-        pointLight.position = glm::vec3(4.0 , 4.0f, 4.0 );
-        ourShader.setVec3("pointLight.position", pointLight.position);
-        ourShader.setVec3("pointLight.ambient", pointLight.ambient);
-        ourShader.setVec3("pointLight.diffuse", pointLight.diffuse);
-        ourShader.setVec3("pointLight.specular", pointLight.specular);
-        ourShader.setFloat("pointLight.constant", pointLight.constant);
-        ourShader.setFloat("pointLight.linear", pointLight.linear);
-        ourShader.setFloat("pointLight.quadratic", pointLight.quadratic);
-        ourShader.setVec3("viewPosition", programState->camera.Position);
-        ourShader.setFloat("material.shininess", 50.0f);
+        lightingShader.use();
+        lightingShader.setVec3("viewPos", programState->camera.Position);
+        lightingShader.setFloat("material.shininess", 32.0f);
+        // directional light
+        lightingShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
+        lightingShader.setVec3("dirLight.ambient", 0.05f, 0.05f, 0.05f);
+        lightingShader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
+        lightingShader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
+        // point light 1
+        lightingShader.setVec3("pointLights[0].position", pointLightPositions[0]);
+        lightingShader.setVec3("pointLights[0].ambient", 0.05f, 0.05f, 0.05f);
+        lightingShader.setVec3("pointLights[0].diffuse", 0.8f, 0.8f, 0.8f);
+        lightingShader.setVec3("pointLights[0].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("pointLights[0].constant", 1.0f);
+        lightingShader.setFloat("pointLights[0].linear", 0.09f);
+        lightingShader.setFloat("pointLights[0].quadratic", 0.032f);
+        // point light 2
+        lightingShader.setVec3("pointLights[1].position", pointLightPositions[1]);
+        lightingShader.setVec3("pointLights[1].ambient", 0.05f, 0.05f, 0.05f);
+        lightingShader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
+        lightingShader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("pointLights[1].constant", 1.0f);
+        lightingShader.setFloat("pointLights[1].linear", 0.09f);
+        lightingShader.setFloat("pointLights[1].quadratic", 0.032f);
+        // point light 3
+        lightingShader.setVec3("pointLights[2].position", pointLightPositions[2]);
+        lightingShader.setVec3("pointLights[2].ambient", 0.05f, 0.05f, 0.05f);
+        lightingShader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
+        lightingShader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("pointLights[2].constant", 1.0f);
+        lightingShader.setFloat("pointLights[2].linear", 0.09f);
+        lightingShader.setFloat("pointLights[2].quadratic", 0.032f);
+        // point light 4
+        lightingShader.setVec3("pointLights[3].position", pointLightPositions[3]);
+        lightingShader.setVec3("pointLights[3].ambient", 0.05f, 0.05f, 0.05f);
+        lightingShader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
+        lightingShader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("pointLights[3].constant", 1.0f);
+        lightingShader.setFloat("pointLights[3].linear", 0.09f);
+        lightingShader.setFloat("pointLights[3].quadratic", 0.032f);
+        // spotLight
+        lightingShader.setVec3("spotLight.position", programState->camera.Position);
+        lightingShader.setVec3("spotLight.direction", programState->camera.Front);
+        lightingShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
+        lightingShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
+        lightingShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("spotLight.constant", 1.0f);
+        lightingShader.setFloat("spotLight.linear", 0.09f);
+        lightingShader.setFloat("spotLight.quadratic", 0.032f);
+        lightingShader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
+        lightingShader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
+
 
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(programState->camera.Zoom),
                                                 (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = programState->camera.GetViewMatrix();
-        ourShader.setMat4("projection", projection);
-        ourShader.setMat4("view", view);
+        lightingShader.setMat4("projection", projection);
+        lightingShader.setMat4("view", view);
 
         // render the loaded model
         float sinus = sin(currentFrame);
@@ -306,20 +346,31 @@ int main() {
                                programState->tigerPosition); // translate it down so it's at the center of the scene
         model = glm::translate(model, glm::vec3(0.0f,0.0f,sinus)); //floating effect
         model = glm::scale(model, glm::vec3(programState->tigerScale));    // it's a bit too big for our scene, so scale it down
-        ourShader.setMat4("model", model);
-        tigerModel.Draw(ourShader);
+        lightingShader.setMat4("model", model);
+        tigerModel.Draw(lightingShader);
 
         glm::mat4 model2 = glm::mat4(1.0f);
         model2 = glm::translate(model2,
                                programState->boatPosition); // translate it down so it's at the center of the scene
         model2 = glm::translate(model2, glm::vec3(0.0f,0.0f,sinus)); //floating effect
         model2 = glm::scale(model2, glm::vec3(programState->boatScale));    // it's a bit too big for our scene, so scale it down
-        ourShader.setMat4("model", model2);
-        boatModel.Draw(ourShader);
+        lightingShader.setMat4("model", model2);
+        boatModel.Draw(lightingShader);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        if (programState->ImGuiEnabled)
-            DrawImGui(programState);
+        lightCubeShader.use();
+        lightCubeShader.setMat4("projection", projection);
+        lightCubeShader.setMat4("view", view);
+        glm::mat4 model3;
+
+        // we now draw as many light bulbs as we have point lights.
+        for (unsigned int i = 0; i < 4; i++)
+        {
+            model3 = glm::mat4(1.0f);
+            model3 = glm::translate(model3,pointLightPositions[i]); // translate it down so it's at the center of the scene
+            model3 = glm::scale(model3, glm::vec3(programState->piScale));    // it's a bit too big for our scene, so scale it down
+            lightCubeShader.setMat4("model", model3);
+            piModel.Draw(lightCubeShader);
+        }
 
         // draw skybox as last **************************************************************
         glDepthFunc(GL_LEQUAL);  // change depth function so depth test passes when values are equal to depth buffer's content
@@ -335,10 +386,14 @@ int main() {
         glBindVertexArray(0);
         glDepthFunc(GL_LESS); // set depth function back to default
 
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (programState->ImGuiEnabled)
+            DrawImGui(programState);
+
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
-        glfwSwapBuffers(window); //Renderovanje
-        glfwPollEvents(); //Provera jel se nesto desilo, klik, mis itd
+        glfwSwapBuffers(window);
+        glfwPollEvents();
     }
 
     programState->SaveToFile("resources/program_state.txt");
