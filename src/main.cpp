@@ -89,13 +89,13 @@ void ProgramState::LoadFromFile(std::string filename) {
         in >> clearColor.r
            >> clearColor.g
            >> clearColor.b
-           >> ImGuiEnabled
+           >> ImGuiEnabled;
 //           >> camera.Position.x
 //           >> camera.Position.y
 //           >> camera.Position.z
-           >> camera.Front.x
-           >> camera.Front.y
-           >> camera.Front.z;
+//           >> camera.Front.x
+//           >> camera.Front.y
+//           >> camera.Front.z;
     }
 }
 
@@ -157,12 +157,15 @@ int main() {
     // configure global opengl state
     // -----------------------------
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     // build and compile shaders
     // -------------------------
     Shader skyboxShader("resources/shaders/skybox.vs", "resources/shaders/skybox.fs");
     Shader lightingShader("resources/shaders/multiple_lights.vs", "resources/shaders/multiple_lights.fs");
     Shader lightCubeShader("resources/shaders/light_bulb.vs", "resources/shaders/light_bulb.fs");
+    Shader blendingShader("resources/shaders/blending.vs", "resources/shaders/blending.fs");
 
     // load models
     // -----------
@@ -171,6 +174,9 @@ int main() {
 
     Model boatModel("resources/objects/wooden-boat/WoodenBoat.obj");
     boatModel.SetShaderTextureNamePrefix("material.");
+
+    Model jellyfishModel("resources/objects/jellyfish/Jellyfish_001.obj");
+    jellyfishModel.SetShaderTextureNamePrefix("material.");
 
     Model piModel("resources/objects/pi/letra_pi.stl");
     piModel.SetShaderTextureNamePrefix("material.");
@@ -260,6 +266,9 @@ int main() {
     lightingShader.use();
     lightingShader.setInt("material.diffuse", 0);
     lightingShader.setInt("material.specular", 1);
+
+    blendingShader.use();
+    blendingShader.setInt("texture1", 0);
 
     // render loop
     // -----------
@@ -385,8 +394,21 @@ int main() {
         glDrawArrays(GL_TRIANGLES, 0, 36);
         glBindVertexArray(0);
         glDepthFunc(GL_LESS); // set depth function back to default
-
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        blendingShader.use();
+        blendingShader.setMat4("projection", projection);
+        view = programState->camera.GetViewMatrix();
+        blendingShader.setMat4("view", view);
+        model = glm::mat4(1.0f);
+        model = glm::translate(model,
+                               glm::vec3(10.0f, 3.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f,0.0f,1.0f));
+        model = glm::scale(model, glm::vec3(0.2f));    // it's a bit too big for our scene, so scale it down
+        blendingShader.setMat4("model", model);
+        jellyfishModel.Draw(blendingShader);
+
+
         if (programState->ImGuiEnabled)
             DrawImGui(programState);
 
@@ -468,7 +490,7 @@ void DrawImGui(ProgramState *programState) {
 
     {
         static float f = 0.0f;
-        ImGui::Begin("Hello window");
+        ImGui::Begin("settings");
         ImGui::Text("Hello text");
         ImGui::SliderFloat("Float slider", &f, 0.0, 1.0);
         ImGui::ColorEdit3("Background color", (float *) &programState->clearColor);
