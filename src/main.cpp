@@ -22,7 +22,7 @@ void scroll_callback(GLFWwindow *window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window);
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 
-unsigned int loadTexture(const char *path); //todo
+unsigned int loadTexture(const char *path);
 unsigned int loadCubemap(vector<std::string> faces);
 
 // settings
@@ -37,6 +37,9 @@ bool firstMouse = true;
 // timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+
+bool blinn = true;
+bool blinnKeyPressed = false;
 
 struct PointLight {
     glm::vec3 position;
@@ -146,7 +149,7 @@ int main() {
     if (programState->ImGuiEnabled) {
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     }
-    // Init Imgui
+    // init Imgui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
@@ -159,6 +162,8 @@ int main() {
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 
     // build and compile shaders
     // -------------------------
@@ -181,8 +186,7 @@ int main() {
     Model piModel("resources/objects/pi/letra_pi.stl");
     piModel.SetShaderTextureNamePrefix("material.");
 
-
-    //*************************** SKYBOX **********************************
+    // skybox vertices
     float skyboxVertices[] = {
             // positions
             -1.0f,  1.0f, -1.0f,
@@ -238,7 +242,7 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
-    // load textures
+    // load cubemap textures
     // -------------
     vector<std::string> faces
             {
@@ -255,7 +259,7 @@ int main() {
     skyboxShader.use();
     skyboxShader.setInt("skybox", 0);
 
-    //******************* Point lights *****************************
+    // point light positions
     glm::vec3 pointLightPositions[] = {
             glm::vec3( 4.0f,  5.0f,  10.0f),
             glm::vec3( 4.0f, 5.0f, -10.0f),
@@ -264,6 +268,7 @@ int main() {
     };
 
     lightingShader.use();
+    lightingShader.setBool("blinn",blinn);
     lightingShader.setInt("material.diffuse", 0);
     lightingShader.setInt("material.specular", 1);
 
@@ -289,6 +294,7 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         lightingShader.use();
+        lightingShader.setBool("blinn",blinn);
         lightingShader.setVec3("viewPos", programState->camera.Position);
         lightingShader.setFloat("material.shininess", 32.0f);
         // directional light
@@ -340,7 +346,6 @@ int main() {
         lightingShader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
         lightingShader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
 
-
         // view/projection transformations
         glm::mat4 projection = glm::perspective(glm::radians(programState->camera.Zoom),
                                                 (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f, 100.0f);
@@ -351,37 +356,34 @@ int main() {
         // render the loaded model
         float sinus = sin(currentFrame);
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model,
-                               programState->tigerPosition); // translate it down so it's at the center of the scene
+        model = glm::translate(model,programState->tigerPosition);
         model = glm::translate(model, glm::vec3(0.0f,0.0f,sinus)); //floating effect
-        model = glm::scale(model, glm::vec3(programState->tigerScale));    // it's a bit too big for our scene, so scale it down
+        model = glm::scale(model, glm::vec3(programState->tigerScale));
         lightingShader.setMat4("model", model);
         tigerModel.Draw(lightingShader);
 
         glm::mat4 model2 = glm::mat4(1.0f);
-        model2 = glm::translate(model2,
-                               programState->boatPosition); // translate it down so it's at the center of the scene
+        model2 = glm::translate(model2,programState->boatPosition);
         model2 = glm::translate(model2, glm::vec3(0.0f,0.0f,sinus)); //floating effect
-        model2 = glm::scale(model2, glm::vec3(programState->boatScale));    // it's a bit too big for our scene, so scale it down
+        model2 = glm::scale(model2, glm::vec3(programState->boatScale));
         lightingShader.setMat4("model", model2);
         boatModel.Draw(lightingShader);
 
         lightCubeShader.use();
         lightCubeShader.setMat4("projection", projection);
         lightCubeShader.setMat4("view", view);
-        glm::mat4 model3;
 
         // we now draw as many light bulbs as we have point lights.
         for (unsigned int i = 0; i < 4; i++)
         {
-            model3 = glm::mat4(1.0f);
-            model3 = glm::translate(model3,pointLightPositions[i]); // translate it down so it's at the center of the scene
-            model3 = glm::scale(model3, glm::vec3(programState->piScale));    // it's a bit too big for our scene, so scale it down
-            lightCubeShader.setMat4("model", model3);
+            model = glm::mat4(1.0f);
+            model = glm::translate(model,pointLightPositions[i]);
+            model = glm::scale(model, glm::vec3(programState->piScale));
+            lightCubeShader.setMat4("model", model);
             piModel.Draw(lightCubeShader);
         }
 
-        // draw skybox as last **************************************************************
+        // draw skybox as last
         glDepthFunc(GL_LEQUAL);  // change depth function so depth test passes when values are equal to depth buffer's content
         skyboxShader.use();
         view = glm::mat4(glm::mat3(programState->camera.GetViewMatrix())); // remove translation from the view matrix
@@ -396,15 +398,15 @@ int main() {
         glDepthFunc(GL_LESS); // set depth function back to default
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+        // jellyfish model - blending
         blendingShader.use();
         blendingShader.setMat4("projection", projection);
         view = programState->camera.GetViewMatrix();
         blendingShader.setMat4("view", view);
         model = glm::mat4(1.0f);
-        model = glm::translate(model,
-                               glm::vec3(10.0f, 3.0f, 0.0f));
+        model = glm::translate(model,glm::vec3(10.0f, 3.0f, 0.0f));
         model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f,0.0f,1.0f));
-        model = glm::scale(model, glm::vec3(0.2f));    // it's a bit too big for our scene, so scale it down
+        model = glm::scale(model, glm::vec3(0.2f));
         blendingShader.setMat4("model", model);
         jellyfishModel.Draw(blendingShader);
 
@@ -529,6 +531,10 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
         } else {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         }
+    }
+
+    if (key == GLFW_KEY_B && action == GLFW_PRESS) {
+        blinn = !blinn;
     }
 }
 
