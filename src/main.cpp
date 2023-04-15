@@ -39,7 +39,6 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 bool blinn = true;
-bool blinnKeyPressed = false;
 
 struct PointLight {
     glm::vec3 position;
@@ -64,6 +63,13 @@ struct ProgramState {
     glm::vec3 piPosition = glm::vec3(0.0f, 0.0f, 0.0f);
     float piScale = 0.03f;
     PointLight pointLight;
+
+    bool hdr = false;
+    bool bloom = false;
+    float exposure = 0.197f;
+    float gamma = 2.2f;
+    int kernelEffects = 3;
+
     ProgramState()
             : camera(glm::vec3(0.0f, 3.0f, 0.0f)) {}
 
@@ -105,6 +111,7 @@ void ProgramState::LoadFromFile(std::string filename) {
 ProgramState *programState;
 
 void DrawImGui(ProgramState *programState);
+void renderQuad();
 
 int main() {
     // glfw: initialize and configure
@@ -113,7 +120,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
+    glfwWindowHint(GLFW_SAMPLES, 4);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
@@ -171,7 +178,8 @@ int main() {
     Shader lightingShader("resources/shaders/multiple_lights.vs", "resources/shaders/multiple_lights.fs");
     Shader lightCubeShader("resources/shaders/light_bulb.vs", "resources/shaders/light_bulb.fs");
     Shader blendingShader("resources/shaders/blending.vs", "resources/shaders/blending.fs");
-
+    Shader screenShader("resources/shaders/framebuffers.vs", "resources/shaders/framebuffers.fs");
+    Shader blurShader("resources/shaders/blur.vs", "resources/shaders/blur.fs");
     // load models
     // -----------
     Model tigerModel("resources/objects/tiger/Tiger.obj");
@@ -242,6 +250,53 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
+    // -------- framebuffers setup --------
+    unsigned int hdrFBO;
+    glGenFramebuffers(1, &hdrFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
+
+    unsigned int colorBuffers[2];
+    glGenTextures(2, colorBuffers);
+    for (unsigned int i = 0; i < 2; ++i) {
+        glBindTexture(GL_TEXTURE_2D, colorBuffers[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, colorBuffers[i], 0);
+    }
+
+    unsigned int rboDepth;
+    glGenRenderbuffers(1, &rboDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, SCR_WIDTH, SCR_HEIGHT);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+
+    unsigned int attachments[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, attachments);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::cerr << "Framebuffer is not complete!" << "\n";
+
+    // ping-pong framebuffer for blurring
+    unsigned int pingpongFBO[2];
+    unsigned int pingpongColorbuffers[2];
+    glGenFramebuffers(2, pingpongFBO);
+    glGenTextures(2, pingpongColorbuffers);
+    for (unsigned int i = 0; i < 2; ++i) {
+        glBindFramebuffer(GL_FRAMEBUFFER, pingpongFBO[i]);
+        glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); // we clamp to the edge as the blur filter would otherwise sample repeated texture values!
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pingpongColorbuffers[i], 0);
+        // also check if framebuffers are complete (no need for depth buffer)
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            std::cout << "ERROR::FRAMEBUFFER:: Pingpong Framebuffer not complete!" << std::endl;
+    }
+
     // load cubemap textures
     // -------------
     vector<std::string> faces
@@ -275,6 +330,9 @@ int main() {
     blendingShader.use();
     blendingShader.setInt("texture1", 0);
 
+    blurShader.use();
+    blurShader.setInt("image", 0);
+
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window)) {
@@ -293,6 +351,8 @@ int main() {
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         lightingShader.use();
         lightingShader.setBool("blinn",blinn);
         lightingShader.setVec3("viewPos", programState->camera.Position);
@@ -300,8 +360,8 @@ int main() {
         // directional light
         lightingShader.setVec3("dirLight.direction", -0.2f, -1.0f, -0.3f);
         lightingShader.setVec3("dirLight.ambient", 0.05f, 0.05f, 0.05f);
-        lightingShader.setVec3("dirLight.diffuse", 0.4f, 0.4f, 0.4f);
-        lightingShader.setVec3("dirLight.specular", 0.5f, 0.5f, 0.5f);
+        lightingShader.setVec3("dirLight.diffuse", 0.2f, 0.2f, 0.2f);
+        lightingShader.setVec3("dirLight.specular", 0.2f, 0.2f, 0.2f);
         // point light 1
         lightingShader.setVec3("pointLights[0].position", pointLightPositions[0]);
         lightingShader.setVec3("pointLights[0].ambient", 0.05f, 0.05f, 0.05f);
@@ -410,6 +470,35 @@ int main() {
         blendingShader.setMat4("model", model);
         jellyfishModel.Draw(blendingShader);
 
+        // blur
+        bool horizontal = true, first_iteration = true;
+        unsigned int amount = 5;
+        blurShader.use();
+        for (unsigned int i = 0; i < amount; ++i) {
+            glBindFramebuffer(GL_FRAMEBUFFER, pingpongFBO[horizontal]);
+            blurShader.setInt("horizontal", horizontal);
+            glBindTexture(GL_TEXTURE_2D, first_iteration ? colorBuffers[1] : pingpongColorbuffers[!horizontal]);
+            renderQuad();
+            horizontal = !horizontal;
+            if (first_iteration)
+                first_iteration = false;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // Render the quad plane on default framebuffer
+        screenShader.use();
+        screenShader.setInt("bloom", programState->bloom);
+        screenShader.setInt("effect", programState->kernelEffects);
+        screenShader.setInt("hdr", programState->hdr);
+        screenShader.setFloat("exposure", programState->exposure);
+        screenShader.setFloat("gamma", programState->gamma);
+        // Bind bloom and non bloom
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, colorBuffers[0]);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[!horizontal]);
+
+        renderQuad();
 
         if (programState->ImGuiEnabled)
             DrawImGui(programState);
@@ -493,7 +582,19 @@ void DrawImGui(ProgramState *programState) {
     {
         static float f = 0.0f;
         ImGui::Begin("settings");
-        ImGui::Text("Hello text");
+        ImGui::Text("Hdr/Bloom");
+        ImGui::Checkbox("HDR", &programState->hdr);
+        if (programState->hdr) {
+            ImGui::Checkbox("Bloom", &programState->bloom);
+            ImGui::DragFloat("Exposure", &programState->exposure, 0.05f, 0.0f, 5.0f);
+            ImGui::DragFloat("Gamma factor", &programState->gamma, 0.05f, 0.0f, 4.0f);
+        }
+        ImGui::Text("Kernel effects");
+        ImGui::RadioButton("Blur", &programState->kernelEffects, 0);
+        ImGui::RadioButton("Grayscale", &programState->kernelEffects, 1);
+        ImGui::RadioButton("Edge detection", &programState->kernelEffects, 2);
+        ImGui::RadioButton("None", &programState->kernelEffects, 3);
+
         ImGui::SliderFloat("Float slider", &f, 0.0, 1.0);
         ImGui::ColorEdit3("Background color", (float *) &programState->clearColor);
         ImGui::DragFloat3("Tiger position", (float*)&programState->tigerPosition);
@@ -612,4 +713,32 @@ unsigned int loadCubemap(vector<std::string> faces)
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     return textureID;
+}
+unsigned int quadVAO = 0;
+unsigned int quadVBO;
+void renderQuad()
+{
+    if (quadVAO == 0)
+    {
+        float quadVertices[] = {
+                // positions        // texture Coords
+                -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+                -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+                1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+                1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+        };
+        // setup plane VAO
+        glGenVertexArrays(1, &quadVAO);
+        glGenBuffers(1, &quadVBO);
+        glBindVertexArray(quadVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    }
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
 }
