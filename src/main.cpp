@@ -22,54 +22,38 @@ void scroll_callback(GLFWwindow *window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window);
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods);
 
-unsigned int loadTexture(const char *path);
 unsigned int loadCubemap(vector<std::string> faces);
 
 // settings
+// --------
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // camera
+// ------
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 
 // timing
+// ------
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 bool blinn = true;
-
-struct PointLight {
-    glm::vec3 position;
-    glm::vec3 ambient;
-    glm::vec3 diffuse;
-    glm::vec3 specular;
-
-    float constant;
-    float linear;
-    float quadratic;
-};
 
 struct ProgramState {
     glm::vec3 clearColor = glm::vec3(0);
     bool ImGuiEnabled = false;
     Camera camera;
     bool CameraMouseMovementUpdateEnabled = true;
-    glm::vec3 tigerPosition = glm::vec3(0.0f);
-    float tigerScale = 8.0f;
-    glm::vec3 boatPosition = glm::vec3(0.0f, -2.5f, 0.0f);
-    float boatScale = 0.1f;
-    glm::vec3 piPosition = glm::vec3(0.0f, 0.0f, 0.0f);
-    float piScale = 0.03f;
-    PointLight pointLight;
-
     bool hdr = false;
     bool bloom = false;
-    float exposure = 0.197f;
-    float gamma = 2.2f;
+    float exposure = 1.2f;
+    float gamma = 0.7f;
     int kernelEffects = 3;
-
+    glm::vec3 pointlightColor = glm::vec3(1.0f);
+    bool spotlights = true;
     ProgramState()
             : camera(glm::vec3(0.0f, 3.0f, 0.0f)) {}
 
@@ -98,13 +82,13 @@ void ProgramState::LoadFromFile(std::string filename) {
         in >> clearColor.r
            >> clearColor.g
            >> clearColor.b
-           >> ImGuiEnabled;
-//           >> camera.Position.x
-//           >> camera.Position.y
-//           >> camera.Position.z
-//           >> camera.Front.x
-//           >> camera.Front.y
-//           >> camera.Front.z;
+           >> ImGuiEnabled
+           >> camera.Position.x
+           >> camera.Position.y
+           >> camera.Position.z
+           >> camera.Front.x
+           >> camera.Front.y
+           >> camera.Front.z;
     }
 }
 
@@ -138,7 +122,9 @@ int main() {
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetKeyCallback(window, key_callback);
+
     // tell GLFW to capture our mouse
+    // ------------------------------
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // glad: load all OpenGL function pointers
@@ -148,15 +134,15 @@ int main() {
         return -1;
     }
 
-    // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
-    // stbi_set_flip_vertically_on_load(true);
-
     programState = new ProgramState;
     programState->LoadFromFile("resources/program_state.txt");
+
     if (programState->ImGuiEnabled) {
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     }
-    // init Imgui
+
+    // init imgui
+    // ----------
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
@@ -180,23 +166,21 @@ int main() {
     Shader blendingShader("resources/shaders/blending.vs", "resources/shaders/blending.fs");
     Shader screenShader("resources/shaders/framebuffers.vs", "resources/shaders/framebuffers.fs");
     Shader blurShader("resources/shaders/blur.vs", "resources/shaders/blur.fs");
+
     // load models
     // -----------
     Model tigerModel("resources/objects/tiger/Tiger.obj");
     tigerModel.SetShaderTextureNamePrefix("material.");
-
     Model boatModel("resources/objects/wooden-boat/WoodenBoat.obj");
     boatModel.SetShaderTextureNamePrefix("material.");
-
     Model jellyfishModel("resources/objects/jellyfish/Jellyfish_001.obj");
     jellyfishModel.SetShaderTextureNamePrefix("material.");
-
     Model piModel("resources/objects/pi/letra_pi.stl");
     piModel.SetShaderTextureNamePrefix("material.");
 
     // skybox vertices
+    // ---------------
     float skyboxVertices[] = {
-            // positions
             -1.0f,  1.0f, -1.0f,
             -1.0f, -1.0f, -1.0f,
             1.0f, -1.0f, -1.0f,
@@ -241,6 +225,7 @@ int main() {
     };
 
     // skybox VAO
+    // ----------
     unsigned int skyboxVAO, skyboxVBO;
     glGenVertexArrays(1, &skyboxVAO);
     glGenBuffers(1, &skyboxVBO);
@@ -250,7 +235,8 @@ int main() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 
-    // -------- framebuffers setup --------
+    // framebuffers setup
+    // ------------------
     unsigned int hdrFBO;
     glGenFramebuffers(1, &hdrFBO);
     glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
@@ -279,6 +265,7 @@ int main() {
         std::cerr << "Framebuffer is not complete!" << "\n";
 
     // ping-pong framebuffer for blurring
+    // ----------------------------------
     unsigned int pingpongFBO[2];
     unsigned int pingpongColorbuffers[2];
     glGenFramebuffers(2, pingpongFBO);
@@ -298,7 +285,7 @@ int main() {
     }
 
     // load cubemap textures
-    // -------------
+    // ---------------------
     vector<std::string> faces
             {
                     FileSystem::getPath("resources/textures/skybox2/right.jpg"),
@@ -311,16 +298,21 @@ int main() {
             };
     unsigned int cubemapTexture = loadCubemap(faces);
 
+    // jellyfish positions
+    // ---------------------
+    glm::vec3 jellyfishPositions[] = {
+            glm::vec3(7.0f, 0.0f, 0.0f),
+            glm::vec3(7.0f, 0.0f, 5.0f),
+            glm::vec3(7.0f, 0.0f, 10.0f),
+            glm::vec3(-7.0f, 0.0f, 0.0f),
+            glm::vec3(-7.0f, 0.0f, 5.0f),
+            glm::vec3(-7.0f, 0.0f, 10.0f)
+    };
+
+    // shaders configuration
+    // ---------------------
     skyboxShader.use();
     skyboxShader.setInt("skybox", 0);
-
-    // point light positions
-    glm::vec3 pointLightPositions[] = {
-            glm::vec3( 4.0f,  5.0f,  10.0f),
-            glm::vec3( 4.0f, 5.0f, -10.0f),
-            glm::vec3(-4.0f,  5.0f, -10.0f),
-            glm::vec3( -4.0f,  5.0f, 10.0f)
-    };
 
     lightingShader.use();
     lightingShader.setBool("blinn",blinn);
@@ -341,6 +333,7 @@ int main() {
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+        float sinus = sin(currentFrame);
 
         // input
         // -----
@@ -349,12 +342,12 @@ int main() {
         // render
         // ------
         glClearColor(programState->clearColor.r, programState->clearColor.g, programState->clearColor.b, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
         glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
         lightingShader.use();
         lightingShader.setBool("blinn",blinn);
+        lightingShader.setBool("spotlights", programState->spotlights);
         lightingShader.setVec3("viewPos", programState->camera.Position);
         lightingShader.setFloat("material.shininess", 32.0f);
         // directional light
@@ -362,91 +355,91 @@ int main() {
         lightingShader.setVec3("dirLight.ambient", 0.05f, 0.05f, 0.05f);
         lightingShader.setVec3("dirLight.diffuse", 0.2f, 0.2f, 0.2f);
         lightingShader.setVec3("dirLight.specular", 0.2f, 0.2f, 0.2f);
-        // point light 1
-        lightingShader.setVec3("pointLights[0].position", pointLightPositions[0]);
-        lightingShader.setVec3("pointLights[0].ambient", 0.05f, 0.05f, 0.05f);
-        lightingShader.setVec3("pointLights[0].diffuse", 0.8f, 0.8f, 0.8f);
-        lightingShader.setVec3("pointLights[0].specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("pointLights[0].constant", 1.0f);
-        lightingShader.setFloat("pointLights[0].linear", 0.09f);
-        lightingShader.setFloat("pointLights[0].quadratic", 0.032f);
-        // point light 2
-        lightingShader.setVec3("pointLights[1].position", pointLightPositions[1]);
-        lightingShader.setVec3("pointLights[1].ambient", 0.05f, 0.05f, 0.05f);
-        lightingShader.setVec3("pointLights[1].diffuse", 0.8f, 0.8f, 0.8f);
-        lightingShader.setVec3("pointLights[1].specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("pointLights[1].constant", 1.0f);
-        lightingShader.setFloat("pointLights[1].linear", 0.09f);
-        lightingShader.setFloat("pointLights[1].quadratic", 0.032f);
-        // point light 3
-        lightingShader.setVec3("pointLights[2].position", pointLightPositions[2]);
-        lightingShader.setVec3("pointLights[2].ambient", 0.05f, 0.05f, 0.05f);
-        lightingShader.setVec3("pointLights[2].diffuse", 0.8f, 0.8f, 0.8f);
-        lightingShader.setVec3("pointLights[2].specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("pointLights[2].constant", 1.0f);
-        lightingShader.setFloat("pointLights[2].linear", 0.09f);
-        lightingShader.setFloat("pointLights[2].quadratic", 0.032f);
-        // point light 4
-        lightingShader.setVec3("pointLights[3].position", pointLightPositions[3]);
-        lightingShader.setVec3("pointLights[3].ambient", 0.05f, 0.05f, 0.05f);
-        lightingShader.setVec3("pointLights[3].diffuse", 0.8f, 0.8f, 0.8f);
-        lightingShader.setVec3("pointLights[3].specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("pointLights[3].constant", 1.0f);
-        lightingShader.setFloat("pointLights[3].linear", 0.09f);
-        lightingShader.setFloat("pointLights[3].quadratic", 0.032f);
-        // spotLight
-        lightingShader.setVec3("spotLight.position", programState->camera.Position);
-        lightingShader.setVec3("spotLight.direction", programState->camera.Front);
-        lightingShader.setVec3("spotLight.ambient", 0.0f, 0.0f, 0.0f);
-        lightingShader.setVec3("spotLight.diffuse", 1.0f, 1.0f, 1.0f);
-        lightingShader.setVec3("spotLight.specular", 1.0f, 1.0f, 1.0f);
-        lightingShader.setFloat("spotLight.constant", 1.0f);
-        lightingShader.setFloat("spotLight.linear", 0.09f);
-        lightingShader.setFloat("spotLight.quadratic", 0.032f);
-        lightingShader.setFloat("spotLight.cutOff", glm::cos(glm::radians(12.5f)));
-        lightingShader.setFloat("spotLight.outerCutOff", glm::cos(glm::radians(15.0f)));
+        // point light
+        lightingShader.setVec3("pointLight.position", glm::vec3(0.0f, 2.5f, -15.0f+sinus));
+        lightingShader.setVec3("pointLight.ambient", 0.05f, 0.05f, 0.05f);
+        lightingShader.setVec3("pointLight.diffuse", 0.8f, 0.8f, 0.8f);
+        lightingShader.setVec3("pointLight.specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("pointLight.constant", 1.0f);
+        lightingShader.setFloat("pointLight.linear", 0.09f);
+        lightingShader.setFloat("pointLight.quadratic", 0.032f);
+
+        // spotLights
+        lightingShader.setVec3("spotLights[0].position", programState->camera.Position);
+        lightingShader.setVec3("spotLights[0].direction", programState->camera.Front);
+        lightingShader.setVec3("spotLights[0].ambient", 0.3f, 0.3f, 0.3f);
+        lightingShader.setVec3("spotLights[0].diffuse", 1.0f, 1.0f, 1.0f);
+        lightingShader.setVec3("spotLights[0].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("spotLights[0].constant", 1.0f);
+        lightingShader.setFloat("spotLights[0].linear", 0.09f);
+        lightingShader.setFloat("spotLights[0].quadratic", 0.032f);
+        lightingShader.setFloat("spotLights[0].cutOff", glm::cos(glm::radians(12.5f)));
+        lightingShader.setFloat("spotLights[0].outerCutOff", glm::cos(glm::radians(15.0f)));
+
+        lightingShader.setVec3("spotLights[1].position", glm::vec3(2.8f* sin(currentFrame / 2.0f),4.0f,2.0-3.6f* cos(currentFrame / 2.0f)));
+        lightingShader.setVec3("spotLights[1].direction", glm::vec3(0.45f,-0.6f,-0.6f));
+        lightingShader.setVec3("spotLights[1].ambient", 0.0f, 0.0f, 0.0f);
+        lightingShader.setVec3("spotLights[1].diffuse", 1.0f, 1.0f, 1.0f);
+        lightingShader.setVec3("spotLights[1].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("spotLights[1].constant", 1.0f);
+        lightingShader.setFloat("spotLights[1].linear", 0.09f);
+        lightingShader.setFloat("spotLights[1].quadratic", 0.032f);
+        lightingShader.setFloat("spotLights[1].cutOff", glm::cos(glm::radians(12.5f)));
+        lightingShader.setFloat("spotLights[1].outerCutOff", glm::cos(glm::radians(15.0f)));
+
+        lightingShader.setVec3("spotLights[2].position", glm::vec3(2.0f*cos(currentFrame/3.0f),4,  2.0+7.0* sin(currentFrame / 3.0f)));
+        lightingShader.setVec3("spotLights[2].direction", glm::vec3(-0.45f, -0.64f, -0.6f));
+        lightingShader.setVec3("spotLights[2].ambient", 0.0f, 0.0f, 0.0f);
+        lightingShader.setVec3("spotLights[2].diffuse", 1.0f, 1.0f, 1.0f);
+        lightingShader.setVec3("spotLights[2].specular", 1.0f, 1.0f, 1.0f);
+        lightingShader.setFloat("spotLights[2].constant", 0.5f);
+        lightingShader.setFloat("spotLights[2].linear", 0.09f);
+        lightingShader.setFloat("spotLights[2].quadratic", 0.032f);
+        lightingShader.setFloat("spotLights[2].cutOff", glm::cos(glm::radians(12.5f)));
+        lightingShader.setFloat("spotLights[2].outerCutOff", glm::cos(glm::radians(15.0f)));
 
         // view/projection transformations
+        // -------------------------------
         glm::mat4 projection = glm::perspective(glm::radians(programState->camera.Zoom),
                                                 (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = programState->camera.GetViewMatrix();
         lightingShader.setMat4("projection", projection);
         lightingShader.setMat4("view", view);
 
-        // render the loaded model
-        float sinus = sin(currentFrame);
+        // render the loaded models
+        // ------------------------
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model,programState->tigerPosition);
-        model = glm::translate(model, glm::vec3(0.0f,0.0f,sinus)); //floating effect
-        model = glm::scale(model, glm::vec3(programState->tigerScale));
+        model = glm::translate(model, glm::vec3(0.0f));
+        model = glm::translate(model, glm::vec3(0.0f,0.0f,sinus));
+        model = glm::scale(model, glm::vec3(8.0f));
         lightingShader.setMat4("model", model);
         tigerModel.Draw(lightingShader);
 
         glm::mat4 model2 = glm::mat4(1.0f);
-        model2 = glm::translate(model2,programState->boatPosition);
-        model2 = glm::translate(model2, glm::vec3(0.0f,0.0f,sinus)); //floating effect
-        model2 = glm::scale(model2, glm::vec3(programState->boatScale));
+        model2 = glm::translate(model2,glm::vec3(0.0f, -2.5f, 0.0f));
+        model2 = glm::translate(model2, glm::vec3(0.0f,0.0f,sinus));
+        model2 = glm::scale(model2, glm::vec3(0.1f));
         lightingShader.setMat4("model", model2);
         boatModel.Draw(lightingShader);
 
+        // render the light bulbs
+        // ----------------------
         lightCubeShader.use();
+        lightCubeShader.setVec3("LightColor", programState->pointlightColor);
         lightCubeShader.setMat4("projection", projection);
         lightCubeShader.setMat4("view", view);
+        model = glm::mat4(1.0f);
+        model = glm::translate(model,glm::vec3(0.0f, 2.5f, -15.0f+sinus));
+        model = glm::scale(model, glm::vec3(0.03f));
+        lightCubeShader.setMat4("model", model);
+        piModel.Draw(lightCubeShader);
 
-        // we now draw as many light bulbs as we have point lights.
-        for (unsigned int i = 0; i < 4; i++)
-        {
-            model = glm::mat4(1.0f);
-            model = glm::translate(model,pointLightPositions[i]);
-            model = glm::scale(model, glm::vec3(programState->piScale));
-            lightCubeShader.setMat4("model", model);
-            piModel.Draw(lightCubeShader);
-        }
 
-        // draw skybox as last
-        glDepthFunc(GL_LEQUAL);  // change depth function so depth test passes when values are equal to depth buffer's content
+        // draw skybox
+        // -----------
+        glDepthFunc(GL_LEQUAL);
         skyboxShader.use();
-        view = glm::mat4(glm::mat3(programState->camera.GetViewMatrix())); // remove translation from the view matrix
+        view = glm::mat4(glm::mat3(programState->camera.GetViewMatrix()));
         skyboxShader.setMat4("view", view);
         skyboxShader.setMat4("projection", projection);
         // skybox cube
@@ -456,21 +449,25 @@ int main() {
         glDrawArrays(GL_TRIANGLES, 0, 36);
         glBindVertexArray(0);
         glDepthFunc(GL_LESS); // set depth function back to default
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // jellyfish model - blending
+        // --------------------------
         blendingShader.use();
         blendingShader.setMat4("projection", projection);
         view = programState->camera.GetViewMatrix();
         blendingShader.setMat4("view", view);
-        model = glm::mat4(1.0f);
-        model = glm::translate(model,glm::vec3(10.0f, 3.0f, 0.0f));
-        model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f,0.0f,1.0f));
-        model = glm::scale(model, glm::vec3(0.2f));
-        blendingShader.setMat4("model", model);
-        jellyfishModel.Draw(blendingShader);
+        for(int i=0; i < 6; i++) {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model,jellyfishPositions[i]+glm::vec3(0.0f, sin(currentFrame), 0.0f));
+            model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0.0f,0.0f,1.0f));
+            model = glm::scale(model, glm::vec3(0.2f));
+            blendingShader.setMat4("model", model);
+            jellyfishModel.Draw(blendingShader);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // blur
+        // ----
         bool horizontal = true, first_iteration = true;
         unsigned int amount = 5;
         blurShader.use();
@@ -485,19 +482,22 @@ int main() {
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        // Render the quad plane on default framebuffer
+
+        // render the quad plane on default framebuffer
+        // --------------------------------------------
         screenShader.use();
         screenShader.setInt("bloom", programState->bloom);
         screenShader.setInt("effect", programState->kernelEffects);
         screenShader.setInt("hdr", programState->hdr);
         screenShader.setFloat("exposure", programState->exposure);
         screenShader.setFloat("gamma", programState->gamma);
-        // Bind bloom and non bloom
+
+        // bind bloom and non bloom
+        // ------------------------
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, colorBuffers[0]);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[!horizontal]);
-
         renderQuad();
 
         if (programState->ImGuiEnabled)
@@ -514,7 +514,6 @@ int main() {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-
     glDeleteVertexArrays(1, &skyboxVAO);
     glDeleteBuffers(1, &skyboxVBO);
 
@@ -580,42 +579,33 @@ void DrawImGui(ProgramState *programState) {
 
 
     {
-        static float f = 0.0f;
-        ImGui::Begin("settings");
-        ImGui::Text("Hdr/Bloom");
+        ImGui::Begin("lighting settings");
+        ImGui::ColorEdit3("Pi color", (float *) &programState->pointlightColor);
+        ImGui::Checkbox("spotlights", &programState->spotlights);
+
+        ImGui::Text("HDR/bloom");
         ImGui::Checkbox("HDR", &programState->hdr);
         if (programState->hdr) {
-            ImGui::Checkbox("Bloom", &programState->bloom);
-            ImGui::DragFloat("Exposure", &programState->exposure, 0.05f, 0.0f, 5.0f);
-            ImGui::DragFloat("Gamma factor", &programState->gamma, 0.05f, 0.0f, 4.0f);
+            ImGui::Checkbox("bloom", &programState->bloom);
+            ImGui::DragFloat("exposure", &programState->exposure, 0.05f, 0.0f, 5.0f);
+            ImGui::DragFloat("gamma factor", &programState->gamma, 0.05f, 0.0f, 4.0f);
         }
-        ImGui::Text("Kernel effects");
-        ImGui::RadioButton("Blur", &programState->kernelEffects, 0);
-        ImGui::RadioButton("Grayscale", &programState->kernelEffects, 1);
-        ImGui::RadioButton("Edge detection", &programState->kernelEffects, 2);
-        ImGui::RadioButton("None", &programState->kernelEffects, 3);
+        ImGui::Text("kernel effects");
+        ImGui::RadioButton("grayscale", &programState->kernelEffects, 1);
+        ImGui::RadioButton("edge detection", &programState->kernelEffects, 2);
+        ImGui::RadioButton("blur", &programState->kernelEffects, 0);
+        ImGui::RadioButton("none", &programState->kernelEffects, 3);
 
-        ImGui::SliderFloat("Float slider", &f, 0.0, 1.0);
-        ImGui::ColorEdit3("Background color", (float *) &programState->clearColor);
-        ImGui::DragFloat3("Tiger position", (float*)&programState->tigerPosition);
-        ImGui::DragFloat("Tiger scale", &programState->tigerScale, 0.05, 0.1, 4.0);
-
-        ImGui::DragFloat3("Boat position", (float*)&programState->boatPosition);
-        ImGui::DragFloat("Boat scale", &programState->boatScale, 0.05, 0.1, 4.0);
-
-        ImGui::DragFloat("pointLight.constant", &programState->pointLight.constant, 0.05, 0.0, 1.0);
-        ImGui::DragFloat("pointLight.linear", &programState->pointLight.linear, 0.05, 0.0, 1.0);
-        ImGui::DragFloat("pointLight.quadratic", &programState->pointLight.quadratic, 0.05, 0.0, 1.0);
         ImGui::End();
     }
 
     {
-        ImGui::Begin("Camera info");
+        ImGui::Begin("camera info");
         const Camera& c = programState->camera;
-        ImGui::Text("Camera position: (%f, %f, %f)", c.Position.x, c.Position.y, c.Position.z);
-        ImGui::Text("(Yaw, Pitch): (%f, %f)", c.Yaw, c.Pitch);
-        ImGui::Text("Camera front: (%f, %f, %f)", c.Front.x, c.Front.y, c.Front.z);
-        ImGui::Checkbox("Camera mouse update", &programState->CameraMouseMovementUpdateEnabled);
+        ImGui::Text("camera position: (%f, %f, %f)", c.Position.x, c.Position.y, c.Position.z);
+        ImGui::Text("(yaw, pitch): (%f, %f)", c.Yaw, c.Pitch);
+        ImGui::Text("camera front: (%f, %f, %f)", c.Front.x, c.Front.y, c.Front.z);
+        ImGui::Checkbox("camera mouse update", &programState->CameraMouseMovementUpdateEnabled);
         ImGui::End();
     }
 

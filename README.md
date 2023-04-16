@@ -1,11 +1,34 @@
-# project_base
-Prazan projekat sa pratećim bibliotekama koje koristimo na času. 
+# Life of Pi
+Projekat za kurs Računarska grafika na Matematičkom fakultetu u Beogradu.
+([demo snimak](https://youtu.be/RAOHGmr4_7I))
 
-# Uputstvo
-1. `git clone https://github.com/matf-racunarska-grafika/project_base.git`
-2. CLion -> Open -> path/to/my/project_base
-3. Main se nalazi u src/main.cpp
-4. Cpp fajlovi idu u src folder
-5. Zaglavlja (h i hpp) fajlovi idu u include
-6. Šejderi idu u folder shaders. `Vertex shader` ima ekstenziju `.vs`, `fragment shader` ima ekstenziju `.fs`
-7. ALT+SHIFT+F10 -> project_base -> run
+Za izradu je korišćen kostur `https://github.com/matf-racunarska-grafika/project_base.git`, kao i 
+materijali sa [LearnOpenGL](https://learnopengl.com/).
+
+Korišćeni modeli su preuzeti sa [Sketchfab](sketchfab.com/) sajta.
+
+Inspirisano filmom [Life of Pi](https://static.wikia.nocookie.net/filmguide/images/b/b8/LifeofPi.jpg/revision/latest?cb=20191211140848).
+
+### Komande
+- `W`, `A`, `S`, `D` - kretanje po sceni
+- `F1` - otvara ImGui za dodatna podešavanja
+- `B` - switch između Phongovog i Blinn-Phongovog modela osvetljenja
+- `ESC` - izlazak iz aplikacije
+
+### Implementirane oblasti
+
+- Oblasti iz 1-8. nedelje
+- Blending 
+- Face Culling
+- Advanced Lighting
+- Cubemaps
+- Framebuffers
+- HDR
+- Bloom
+
+### Galerija
+![](gallery/pi1.png)
+![](gallery/pi2.png)
+![](gallery/pi3.png)
+![](gallery/pi4.png)
+![](gallery/pi5.png)
